@@ -255,9 +255,9 @@ class EncoderPrenet(nn.Module):
         self.txt_embed = nn.Embedding(
             hparams.n_symbols, hparams.d_embed, padding_idx=0,
         )
-        #std = sqrt(2.0 / (hparams.n_symbols + hparams.d_embed))
-        #val = sqrt(3.0) * std  # uniform bounds for std
-        #nn.init.uniform_(self.txt_embed.weight, -val, val)
+        # std = sqrt(2.0 / (hparams.n_symbols + hparams.d_embed))
+        # val = sqrt(3.0) * std  # uniform bounds for std
+        # nn.init.uniform_(self.txt_embed.weight, -val, val)
         self.position = PositionalEncoding(hparams.n_position, hparams.d_model)
 
     def forward(self, txt_seq):
@@ -457,6 +457,8 @@ class Transformer(nn.Module):
         self.decoder = Decoder(hparams)
         self.d_mel = hparams.d_mel
         self.n_frames_per_step = hparams.n_frames_per_step
+        self.stop_threshold = hparams.stop_threshold
+        self.max_decoder_steps = hparams.max_decoder_steps
 
         self.mel_linear = nn.Linear(
             hparams.d_model, hparams.d_mel * hparams.n_frames_per_step,
@@ -542,5 +544,68 @@ class Transformer(nn.Module):
                 dec_enc_attn_list,
             ],
             mel_flag,
+        )
+        return outputs
+
+    def inference(self, inputs):
+        src_seq = inputs[0]
+        src_qmask, src_kmask = None, None
+        trg_qmask = None
+
+        # encoder
+        # enc_output (b, enc_l, d_model), enc_attn_list [(b, h, enc_l, enc_l)]
+        src_input = self.encoder_prenet(src_seq)
+        enc_output, enc_attn_list = self.encoder(
+            src_input, src_qmask, src_kmask, return_attns=True
+        )
+
+        # create the go frame (b, d_mel, 1)
+        trg_go = enc_output.new_full((enc_output.size(0), self.d_mel), -1.0)
+        trg_go = trg_go.unsqueeze(-1)
+
+        while True:
+            # trg_go (b, d_mel, dec_l), trg_input (b, dec_l, d_model)
+            trg_input = self.decoder_prenet(trg_go)
+            trg_kmask = get_causal_mask(trg_go)
+
+            # dec_attn_list [(b, h, dec_l, dec_l)]
+            # dec_enc_attn_list [(b, h, dec_l, enc_l)]
+            dec_output, dec_attn_list, dec_enc_attn_list = self.decoder(
+                trg_input,
+                trg_qmask,
+                trg_kmask,
+                enc_output,
+                src_kmask,
+                return_attns=True,
+            )
+            mel_output = self.mel_linear(dec_output)
+            stop_output = self.stop_linear(dec_output)
+
+            # reshape to original format
+            # mel_output (b, d_mel, dec_l), stop_output (b, dec_l)
+            mel_output = mel_output.transpose(1, 2)
+            stop_output = stop_output.squeeze(-1)
+
+            eos = torch.sigmoid(stop_output).detach().cpu().numpy()
+            if True in (eos >= self.stop_threshold):
+                break
+            elif mel_output.size(-1) == self.max_decoder_steps:
+                print("Warning! Reached max decoder steps")
+                break
+
+            # create the new input
+            trg_go = torch.cat((trg_go, mel_output[:, :, -1:]), dim=-1)
+
+        mel_output_postnet = self.postnet(mel_output)
+        mel_output_postnet = mel_output + mel_output_postnet
+        outputs = self.parse_output(
+            [
+                mel_output,
+                mel_output_postnet,
+                stop_output,
+                enc_attn_list,
+                dec_attn_list,
+                dec_enc_attn_list,
+            ]
         )
         return outputs

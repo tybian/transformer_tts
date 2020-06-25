@@ -52,7 +52,7 @@ n_layers = 3
 n_position = 1024
 n_frames_per_step = 1   # currently, only 1 is supported
 max_decoder_steps = 1000
-gate_threshold = 0.5
+stop_threshold = 0.5
 
 # Encoder prenet parameters
 eprenet_chans = 512
