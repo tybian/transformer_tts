@@ -596,6 +596,8 @@ class Transformer(nn.Module):
             # create the new input
             trg_go = torch.cat((trg_go, mel_output[:, :, -1:]), dim=-1)
 
+        # pop the last frame for it's just a token
+        mel_output = mel_output[:, :, :-1]
         mel_output_postnet = self.postnet(mel_output)
         mel_output_postnet = mel_output + mel_output_postnet
         outputs = self.parse_output(
