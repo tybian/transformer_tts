@@ -12,7 +12,7 @@ import torch.distributed as dist
 from torch.cuda import amp
 
 import hparams as hparams
-from model_fast import Transformer
+from model import Transformer
 from utils_data import TextMelLoader, TextMelCollate
 from loss_function import TransformerLoss
 from logger import TransformerLogger
