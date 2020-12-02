@@ -38,9 +38,9 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-from audio_processing import window_sumsquare
-from audio_processing import dynamic_range_compression
-from audio_processing import dynamic_range_decompression
+from utils_audio import window_sumsquare
+from utils_audio import dynamic_range_compression
+from utils_audio import dynamic_range_decompression
 import hparams as hparams
 
 

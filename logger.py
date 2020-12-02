@@ -1,10 +1,11 @@
 import random
+import numpy as np
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from plotting_utils import plot_alignment_to_numpy, plot_spectrogram_to_numpy
-from plotting_utils import plot_gate_outputs_to_numpy
+from utils_plotting import plot_alignment_to_numpy, plot_spectrogram_to_numpy
+from utils_plotting import plot_gate_outputs_to_numpy
 
 
 class TransformerLogger(SummaryWriter):
@@ -12,13 +13,21 @@ class TransformerLogger(SummaryWriter):
         super(TransformerLogger, self).__init__(logdir)
 
     def log_training(self, loss, grad_norm, lr, duration, iteration):
-        self.add_scalar("training/loss", loss, iteration)
+        self.add_scalar("training/loss", loss[0], iteration)
+        self.add_scalar("training/loss_mel_l1", loss[1], iteration)
+        self.add_scalar("training/loss_mel_l2", loss[2], iteration)
+        self.add_scalar("training/loss_gate", loss[3], iteration)
+        self.add_scalar("training/loss_guide", loss[4], iteration)
         self.add_scalar("training/grad_norm", grad_norm, iteration)
         self.add_scalar("training/learning_rate", lr, iteration)
         self.add_scalar("training/duration", duration, iteration)
 
     def log_validation(self, loss, model, y, y_pred, iteration):
-        self.add_scalar("validation/loss", loss, iteration)
+        self.add_scalar("validation/loss", loss[0], iteration)
+        self.add_scalar("validation/loss_mel_l1", loss[1], iteration)
+        self.add_scalar("validation/loss_mel_l2", loss[2], iteration)
+        self.add_scalar("validation/loss_gate", loss[3], iteration)
+        self.add_scalar("validation/loss_guide", loss[4], iteration)
         self.add_scalars(
             "validation/alpha",
             {
@@ -35,7 +44,7 @@ class TransformerLogger(SummaryWriter):
             enc_attn_list,
             dec_attn_list,
             dec_enc_attn_list,
-        ) = y_pred
+        ) = y_pred[0]
         mel_target, gate_target = y
 
         # plot distribution of parameters
@@ -46,26 +55,24 @@ class TransformerLogger(SummaryWriter):
         # plot alignment, mel target and predicted, gate target and predicted
         idx = random.randint(0, mel_target.size(0) - 1)
 
-        self.plot_multihead_attention(
-            "encoder/", idx, enc_attn_list, iteration
-        )
-        self.plot_multihead_attention(
-            "decoder/", idx, dec_attn_list, iteration
-        )
+        self.plot_multihead_attention("encoder/", idx, enc_attn_list, iteration)
+        # self.plot_multihead_attention("decoder/", idx, dec_attn_list, iteration)
         self.plot_multihead_attention(
             "decoder_encoder/", idx, dec_enc_attn_list, iteration
         )
 
         self.add_image(
             "mel_target",
-            plot_spectrogram_to_numpy(mel_target[idx].detach().cpu().numpy()),
+            plot_spectrogram_to_numpy(
+                mel_target[idx].detach().cpu().numpy().astype(np.float32)
+            ),
             iteration,
             dataformats="HWC",
         )
         self.add_image(
             "mel_predicted",
             plot_spectrogram_to_numpy(
-                mel_output_postnet[idx].detach().cpu().numpy()
+                mel_output_postnet[idx].detach().cpu().numpy().astype(np.float32)
             ),
             iteration,
             dataformats="HWC",
@@ -94,9 +101,7 @@ class TransformerLogger(SummaryWriter):
                 alignment = multihead_attn[j]
                 self.add_image(
                     info + "layer_" + str(i) + "_head_" + str(j),
-                    plot_alignment_to_numpy(
-                        alignment.detach().cpu().numpy().T
-                    ),
+                    plot_alignment_to_numpy(alignment.detach().cpu().numpy().T),
                     iteration,
                     dataformats="HWC",
                 )

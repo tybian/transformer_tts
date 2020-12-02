@@ -1,16 +1,15 @@
 import numpy as np
-from math import sqrt
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-def get_ouput_mask(out_flag):
+def get_output_mask(out_flag):
 
     # (N, L)
-    ouput_mask = out_flag.eq(0)
-    return ouput_mask
+    output_mask = out_flag.eq(0)
+    return output_mask
 
 
 def get_attn_mask(seq_flag):
@@ -40,8 +39,7 @@ def get_causal_mask(seq):
     """
     causal_mask = (
         torch.triu(
-            torch.ones((1, seq.size(-1), seq.size(-1)), device=seq.device),
-            diagonal=1,
+            torch.ones((1, seq.size(-1), seq.size(-1)), device=seq.device), diagonal=1,
         )
     ).bool()
     return causal_mask
@@ -84,16 +82,15 @@ class ScaledDotProductAttention(nn.Module):
 
         # masking for key side, set -1e9 to minimize the cor attn score
         if kmask is not None:
-            attn = attn.masked_fill(kmask, -1e9)
+            attn = attn.masked_fill(kmask, -10000.0)
 
         attn = F.softmax(attn, dim=-1)
-
-        # masking for query side, ignore the all padding postions
-        if qmask is not None:
-            attn = attn.masked_fill(qmask, 0.0)
-
         attn = self.dropout(attn)
         output = torch.matmul(attn, v)
+
+        # masking for query side, ignore the all padding postions for clean plot
+        if qmask is not None:
+            attn = attn.masked_fill(qmask, 0.0)
 
         # output (N, H, Lq, Dv), attn (N, H, Lq, Lk)
         return output, attn
@@ -201,18 +198,14 @@ class Encoder(nn.Module):
             ]
         )
 
-    def forward(
-        self, input, enc_qmask=None, enc_kmask=None, return_attns=False
-    ):
+    def forward(self, input, enc_qmask=None, enc_kmask=None, return_attns=False):
         enc_attn_list = []
 
         # positional dropout
         output = F.dropout(input, p=0.1, training=self.training)
 
         for layer in self.layer_stack:
-            output, head_attn = layer(
-                output, enc_qmask=enc_qmask, enc_kmask=enc_kmask
-            )
+            output, head_attn = layer(output, enc_qmask=enc_qmask, enc_kmask=enc_kmask)
             enc_attn_list += [head_attn] if return_attns else []
 
         if return_attns:
@@ -252,12 +245,7 @@ class EncoderPrenet(nn.Module):
             )
 
         self.project = nn.Linear(hparams.eprenet_chans, hparams.d_model)
-        self.txt_embed = nn.Embedding(
-            hparams.n_symbols, hparams.d_embed, padding_idx=0,
-        )
-        # std = sqrt(2.0 / (hparams.n_symbols + hparams.d_embed))
-        # val = sqrt(3.0) * std  # uniform bounds for std
-        # nn.init.uniform_(self.txt_embed.weight, -val, val)
+        self.txt_embed = nn.Embedding(hparams.n_symbols, hparams.d_embed, padding_idx=0,)
         self.position = PositionalEncoding(hparams.n_position, hparams.d_model)
 
     def forward(self, txt_seq):
@@ -290,22 +278,13 @@ class DecoderLayer(nn.Module):
         self.ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
 
     def forward(
-        self,
-        input,
-        enc_output,
-        dec_qmask=None,
-        dec_kmask=None,
-        dec_enc_kmask=None,
+        self, input, enc_output, dec_qmask=None, dec_kmask=None, dec_enc_kmask=None,
     ):
         output, dec_attn = self.masked_head_attn(
             input, input, input, qmask=dec_qmask, kmask=dec_kmask
         )
         output, dec_enc_attn = self.multi_head_attn(
-            output,
-            enc_output,
-            enc_output,
-            qmask=dec_qmask,
-            kmask=dec_enc_kmask,
+            output, enc_output, enc_output, qmask=dec_qmask, kmask=dec_enc_kmask,
         )
         output = self.ffn(output)
         return output, dec_attn, dec_enc_attn
@@ -329,13 +308,7 @@ class Decoder(nn.Module):
         )
 
     def forward(
-        self,
-        input,
-        dec_qmask,
-        dec_kmask,
-        enc_output,
-        dec_enc_kmask,
-        return_attns=False,
+        self, input, dec_qmask, dec_kmask, enc_output, dec_enc_kmask, return_attns=False,
     ):
         dec_attn_list, dec_enc_attn_list = [], []
 
@@ -435,9 +408,7 @@ class Postnet(nn.Module):
     def forward(self, x):
         for i in range(len(self.convolutions) - 1):
             x = F.dropout(
-                torch.tanh(self.convolutions[i](x)),
-                p=0.1,
-                training=self.training,
+                torch.tanh(self.convolutions[i](x)), p=0.5, training=self.training,
             )
         x = F.dropout(self.convolutions[-1](x), p=0.5, training=self.training)
         return x
@@ -459,28 +430,18 @@ class Transformer(nn.Module):
         self.n_frames_per_step = hparams.n_frames_per_step
         self.stop_threshold = hparams.stop_threshold
         self.max_decoder_steps = hparams.max_decoder_steps
+        self.infer_trim = hparams.infer_trim
 
         self.mel_linear = nn.Linear(
             hparams.d_model, hparams.d_mel * hparams.n_frames_per_step,
         )
-        self.stop_linear = nn.Linear(
-            hparams.d_model, hparams.n_frames_per_step,
-        )
+        self.stop_linear = nn.Linear(hparams.d_model, hparams.n_frames_per_step,)
         self.postnet = Postnet(hparams)
 
-        # TODO: parameter init for other model
-        # for p in self.encoder.parameters():
-        #     if p.dim() > 1:
-        #         nn.init.xavier_uniform_(p)
-
-        # for p in self.decoder.parameters():
-        #     if p.dim() > 1:
-        #         nn.init.xavier_uniform_(p)
-
-    def parse_output(self, outputs, out_flag=None):
+    def parse_output(self, outputs, in_flag=None, out_flag=None):
         if out_flag is not None:
             mel_num = outputs[0].size(1)
-            mask = get_ouput_mask(out_flag)
+            mask = get_output_mask(out_flag)
 
             # (mel_num, N, L) ---> (N, mel_num, L)
             mask = mask.expand(mel_num, mask.size(0), mask.size(1))
@@ -495,12 +456,12 @@ class Transformer(nn.Module):
             outputs[0] = outputs[0].masked_fill(mask_r, 0.0)
             outputs[1] = outputs[1].masked_fill(mask_r, 0.0)
             outputs[2] = outputs[2].masked_fill(mask_r[:, 0, :], 1e3)
-        return outputs
+        return outputs, in_flag, out_flag
 
     def forward(self, inputs):
 
         # parse input
-        src_seq, src_flag, trg_seq, trg_flag, mel_flag = inputs
+        src_seq, src_flag, trg_seq, trg_flag = inputs
         src_qmask, src_kmask = get_attn_mask(src_flag)
         trg_qmask, trg_kmask = get_attn_mask(trg_flag)
         trg_cmask = get_causal_mask(trg_seq)
@@ -515,12 +476,7 @@ class Transformer(nn.Module):
         # decoder
         trg_input = self.decoder_prenet(trg_seq)
         dec_output, dec_attn_list, dec_enc_attn_list = self.decoder(
-            trg_input,
-            trg_qmask,
-            trg_kmask,
-            enc_output,
-            src_kmask,
-            return_attns=True,
+            trg_input, trg_qmask, trg_kmask, enc_output, src_kmask, return_attns=True,
         )
         mel_output = self.mel_linear(dec_output)
         stop_output = self.stop_linear(dec_output)
@@ -543,7 +499,8 @@ class Transformer(nn.Module):
                 dec_attn_list,
                 dec_enc_attn_list,
             ],
-            mel_flag,
+            src_flag,
+            trg_flag,
         )
         return outputs
 
@@ -560,7 +517,7 @@ class Transformer(nn.Module):
         )
 
         # create the go frame (b, d_mel, 1)
-        trg_go = enc_output.new_full((enc_output.size(0), self.d_mel), -1.0)
+        trg_go = enc_output.new_full((enc_output.size(0), self.d_mel), 1.0)
         trg_go = trg_go.unsqueeze(-1)
 
         while True:
@@ -596,8 +553,10 @@ class Transformer(nn.Module):
             # create the new input
             trg_go = torch.cat((trg_go, mel_output[:, :, -1:]), dim=-1)
 
-        # pop the last frame for it's just a token
-        mel_output = mel_output[:, :, :-1]
+        # Remove the added go frame and delete the potential noise frame
+        mel_output = trg_go[:, :, 1:]
+        for cnt in range(self.infer_trim):
+            mel_output = mel_output[:, :, :-1]
         mel_output_postnet = self.postnet(mel_output)
         mel_output_postnet = mel_output + mel_output_postnet
         outputs = self.parse_output(
@@ -610,4 +569,4 @@ class Transformer(nn.Module):
                 dec_enc_attn_list,
             ]
         )
-        return outputs
+        return outputs[0]
