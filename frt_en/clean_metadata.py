@@ -2,6 +2,7 @@ import os
 from tacotron_cleaner.cleaners import custom_english_cleaners
 from g2p_en import G2p
 from tqdm import tqdm
+import random
 
 
 def init_dict():
@@ -189,13 +190,21 @@ def make_subsets():
     train_path = os.path.join(filelists_path, "train_set.csv")
     dev_path = os.path.join(filelists_path, "dev_set.csv")
     test_path = os.path.join(filelists_path, "test_set.csv")
+    long_path = os.path.join(filelists_path, "long_set.csv")
 
     with open(data_path, "r", encoding="utf-8") as f:
         lines = [line for line in f]
 
-    train_lines = lines[:-500]
-    dev_lines = lines[-500:-250]
-    test_lines = lines[-250:]
+    lines = sorted(lines, key=lambda x: len(x.split("|")[-1]))
+    lines_domain = lines[:-100]
+    lines_outdom = lines[-100:]
+
+    random.seed(0)
+    random.shuffle(lines_domain)
+    train_lines = lines_domain[:-500]
+    dev_lines = lines_domain[-500:-250]
+    test_lines = lines_domain[-250:]
+    long_lines = lines_outdom
 
     with open(train_path, "w", encoding="utf-8") as f:
         for line in train_lines:
@@ -207,6 +216,10 @@ def make_subsets():
 
     with open(test_path, "w", encoding="utf-8") as f:
         for line in test_lines:
+            f.write(line)
+
+    with open(long_path, "w", encoding="utf-8") as f:
+        for line in long_lines:
             f.write(line)
     print("All the subsets have been prepared")
 

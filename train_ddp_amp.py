@@ -58,7 +58,7 @@ def prepare_dataloaders(hparams, processing_rank, world_size):
 
     train_loader = DataLoader(
         trainset,
-        num_workers=2,
+        num_workers=4,
         shuffle=False,
         batch_size=hparams.batch_size,
         pin_memory=True,
@@ -69,7 +69,7 @@ def prepare_dataloaders(hparams, processing_rank, world_size):
 
     valid_loader = DataLoader(
         valset,
-        num_workers=2,
+        num_workers=4,
         shuffle=True,
         batch_size=hparams.batch_size,
         pin_memory=True,
@@ -302,14 +302,14 @@ if __name__ == "__main__":
         "-o",
         "--output_directory",
         type=str,
-        default="/home/server/disk1/checkpoints/transformer_tts_frt/exp_ddp_amp",
+        default="/home/server/disk1/checkpoints/transformer_tts/exp_ddp_amp",
         help="directory to save checkpoints",
     )
     parser.add_argument(
         "-l",
         "--log_directory",
         type=str,
-        default="/home/server/disk1/checkpoints/transformer_tts_frt/log/exp_ddp_amp",
+        default="/home/server/disk1/checkpoints/transformer_tts/log/exp_ddp_amp",
         help="directory to save tensorboard logs",
     )
     parser.add_argument(

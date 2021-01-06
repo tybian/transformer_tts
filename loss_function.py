@@ -61,7 +61,7 @@ class TransformerLoss(nn.Module):
         for layer_id, layer_attn in enumerate(attn):
 
             # Guide the first 3 layers by default
-            if layer_id < 3:
+            if layer_id < 6 and layer_id >= 3:
                 # Guide the first head by default, (B, T_max_out, T_max_in)
                 layer_attn = layer_attn[:, 0, :, :]
                 guided_attn_masks = layer_attn.new_zeros((num, padded_olen, padded_ilen))

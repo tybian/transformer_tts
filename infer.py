@@ -145,7 +145,7 @@ def main(args, hparams):
                 enc_attn_list,
                 dec_attn_list,
                 dec_enc_attn_list,
-            ) = model.inference_dp(x)
+            ) = model.inference(x)
 
             # the end time
             duration = time.perf_counter() - start
